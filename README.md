@@ -7,7 +7,8 @@
 
 ## 🎬 Demo
 
-> **Coming Soon!** We're preparing a comprehensive video demonstration showing Anjali in action.
+https://github.com/user-attachments/assets/31fe6536-56cd-40dc-9732-3fc7e1f5522e
+
 
 **What the demo will showcase:**
 
