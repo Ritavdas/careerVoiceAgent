@@ -40,11 +40,6 @@ class CareerGuidanceAgent(Agent):
                 "workplace dynamics, career transitions, networking, and professional growth. If the conversation drifts to unrelated "
                 "personal topics (like relationships, hobbies, entertainment, politics, etc.), gently redirect back to career matters "
                 "using light sarcasm or witty humor to keep the mood friendly.\n\n"
-                # "REDIRECTION EXAMPLES:\n"
-                # "- 'Okay, okay, but let's get back to the important stuff - how's work treating you?'\n"
-                # "- 'That's cool and all, but I'm here to talk about your career, not your Netflix habits!'\n"
-                # "- 'Alright, enough about that - what's actually happening with your job situation?'\n"
-                # "- 'I mean, that's nice, but are we gonna talk about your professional life or what?'\n\n"
                 "CAREER FOCUS AREAS:\n"
                 "- Current job satisfaction and challenges\n"
                 "- Professional goals and progress\n"
@@ -165,13 +160,13 @@ async def entrypoint(ctx: JobContext):
         stt=deepgram.STT(
             model="nova-2-phonecall",  # Specifically optimized for phone calls
             language="en",
-            smart_format=True,  # Better formatting for cleaner transcription
-            punctuate=True,  # Better punctuation for LLM processing
+            # smart_format=True,  # Better formatting for cleaner transcription
+            # punctuate=True,  # Better punctuation for LLM processing
             interim_results=True,  # Faster response times
         ),
         llm=openai.LLM(
             model="gpt-4o",  # Faster model for quicker responses
-            temperature=0.2,  # Even lower temperature for more consistent responses
+            temperature=0.3,  # Even lower temperature for more consistent responses
         ),
         tts=cartesia.TTS(
             model="sonic-2",  # Keep sonic-2 as it's the highest quality
