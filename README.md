@@ -5,6 +5,17 @@
 [![Python](https://img.shields.io/badge/Python-3.8+-yellow)](https://python.org/)
 [![Twilio](https://img.shields.io/badge/Twilio-SIP-red)](https://twilio.com/)
 
+## 🎬 Demo
+
+> **Coming Soon!** We're preparing a comprehensive video demonstration showing Anjali in action.
+
+**What the demo will showcase:**
+
+- 📞 **Live outbound call** - See how Anjali initiates and manages calls
+- 🗣️ **Natural conversation flow** - Experience realistic career coaching dialogue
+- 🎯 **Topic management** - Watch how Anjali keeps conversations career-focused
+- 💡 **Personalized advice** - See contextual career guidance in real-time
+- 🔊 **Audio quality** - Hear crystal-clear voice synthesis and recognition
 A sophisticated AI-powered career coaching voice agent that conducts weekly check-in calls to help professionals grow their careers. Built with LiveKit Agents, this system provides personalized career guidance through natural voice conversations.
 
 ## 🌟 Project Overview
@@ -87,9 +98,9 @@ Anjali is designed to feel like a real person - not a corporate coaching bot. He
 | **SIP Integration** | Twilio | Outbound calling infrastructure |
 | **Voice Processing** | Silero VAD | Voice activity detection |
 
-## 🎬 Quick Demo
+### 🎮 Try It Yourself
 
-Want to see Anjali in action? Here's what a typical call looks like:
+Want to experience Anjali right now? Here's what a typical call looks like:
 
 1. **You receive a call** from your configured Twilio number
 2. **Anjali greets you** with context from your last conversation
@@ -98,6 +109,31 @@ Want to see Anjali in action? Here's what a typical call looks like:
 5. **Call ends** with clear next steps and encouragement
 
 **Total call time**: Usually 5-15 minutes, depending on what you want to discuss.
+
+### 🎯 Demo Scenarios
+
+**Scenario 1: Weekly Check-in**
+
+```
+Anjali: "Hey! It's Anjali. How's your week been going work-wise?"
+You: "Pretty good, but I'm feeling stuck on this project..."
+Anjali: "Ugh, that's frustrating. What's making you feel stuck exactly?"
+```
+
+**Scenario 2: Career Planning**
+
+```
+Anjali: "So, where do you see yourself career-wise in the next year?"
+You: "I want to move into a leadership role..."
+Anjali: "Nice! What skills do you think you need to work on for that?"
+```
+
+**Scenario 3: Topic Redirection**
+
+```
+You: "I've been binge-watching this new series..."
+Anjali: "That's cool, but let's focus on your career stuff. Any wins at work this week?"
+```
 
 ## 🚀 Quick Start
 
