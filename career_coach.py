@@ -115,7 +115,6 @@ async def entrypoint(ctx: JobContext):
                     wait_until_answered=True,
                     # Audio quality optimizations
                     krisp_enabled=True,  # Enable noise suppression for cleaner audio
-                    ringing_timeout=30,  # 30 second timeout for better connection
                 )
             )
             logger.info("Outbound call connected successfully")
