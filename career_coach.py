@@ -81,6 +81,11 @@ def prewarm(proc: JobProcess):
 async def entrypoint(ctx: JobContext):
     """Main entrypoint for the career guidance voice agent"""
 
+    # CRITICAL: Connect to the room first to avoid timeout warning
+    logger.info("Connecting to LiveKit room...")
+    await ctx.connect()
+    logger.info("Successfully connected to room")
+
     # Check if this is an outbound call by looking for phone number in metadata
     is_outbound = False
     phone_number = None
@@ -95,10 +100,11 @@ async def entrypoint(ctx: JobContext):
     except (json.JSONDecodeError, KeyError):
         logger.info("No phone number in metadata, treating as inbound coaching call")
 
-    # If this is an outbound call, create the SIP participant first
+    # If this is an outbound call, create the SIP participant
     if is_outbound and phone_number:
         try:
             trunk_id = os.getenv("LIVEKIT_SIP_TRUNK_ID")
+            logger.info(f"Creating SIP participant for {phone_number}")
 
             await ctx.api.sip.create_sip_participant(
                 api.CreateSIPParticipantRequest(
@@ -108,19 +114,20 @@ async def entrypoint(ctx: JobContext):
                     participant_identity=f"caller-{phone_number}",
                     participant_name="Outbound Call",
                     wait_until_answered=True,
-                    # Audio quality optimizations
                     krisp_enabled=True,  # Enable noise suppression for cleaner audio
                 )
             )
-            logger.info("Outbound call connected successfully")
+            logger.info("SIP participant created successfully")
         except api.TwirpError as e:
             logger.error(f"Error creating SIP participant: {e.message}")
-            ctx.shutdown()
             return
-    else:
-        # For inbound calls, wait for participant to connect
-        await ctx.wait_for_participant()
+        except Exception as e:
+            logger.error(f"Unexpected error creating SIP participant: {e}")
+            return
 
+    # Wait for participant to join the room
+    logger.info("Waiting for participant to join...")
+    await ctx.wait_for_participant()
     logger.info("Participant connected, starting career guidance agent")
 
     # Start call recording - COMMENTED OUT FOR NOW
@@ -160,29 +167,47 @@ async def entrypoint(ctx: JobContext):
         stt=deepgram.STT(
             model="nova-2-phonecall",  # Specifically optimized for phone calls
             language="en",
-            # smart_format=True,  # Better formatting for cleaner transcription
-            # punctuate=True,  # Better punctuation for LLM processing
-            interim_results=True,  # Faster response times
+            preemptive_generation=True,
+            smart_format=True,  # Better formatting for cleaner transcription
+            punctuate=True,  # Better punctuation for LLM processing
+            # interim_results=True,  # Faster response times
         ),
         llm=openai.LLM(
             model="gpt-4o",  # Faster model for quicker responses
             temperature=0.3,  # Even lower temperature for more consistent responses
         ),
         tts=cartesia.TTS(
-            model="sonic-2",  # Keep sonic-2 as it's the highest quality
+            model="sonic-turbo",  # Keep sonic-2 as it's the highest quality
             voice="f6141af3-5f94-418c-80ed-a45d450e7e2e",  # Keep your preferred voice
             language="en",
             # Audio quality optimizations
             sample_rate=24000,  # Higher sample rate for better quality
-            speed=1.0,  # Normal speed for clarity
         ),
     )
 
     # Start the agent session
-    await session.start(
-        agent=CareerGuidanceAgent(is_outbound=is_outbound),
-        room=ctx.room,
-    )
+    logger.info("Starting agent session...")
+    try:
+        await session.start(
+            agent=CareerGuidanceAgent(is_outbound=is_outbound),
+            room=ctx.room,
+        )
+        logger.info("Agent session started successfully")
+    except Exception as e:
+        logger.error(f"Failed to start agent session: {e}")
+        return
+
+    # Print final latency statistics and export data
+    # logger.info("Session ended, generating latency report...")
+    # session.print_latency_stats()
+
+    # # Export latency data to file
+    # if phone_number:
+    #     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    #     latency_file = session.export_latency_data(
+    #         f"latency_report_{phone_number}_{timestamp}.txt"
+    #     )
+    #     logger.info(f"Latency data exported to: {latency_file}")
 
     # Stop recording when session ends
     if recording_id:
