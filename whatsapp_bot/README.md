@@ -1,22 +1,23 @@
-# 🤖 WhatsApp Bot - FastAPI + PyWA
+# 🤖 WhatsApp Career Coach Bot - Direct API
 
-A simple yet powerful WhatsApp bot built with **FastAPI** and **PyWA** for the WhatsApp Cloud API.
+A powerful WhatsApp bot built with **FastAPI** and **Direct WhatsApp Cloud API** calls for career coaching and advice.
 
 ## 🚀 Features
 
-- ✅ **Interactive Messaging** - Buttons, menus, and rich interactions
-- 🧮 **Built-in Calculator** - Perform math calculations
-- 📸 **Image Processing** - Handle and respond to images
+- ✅ **Career Coaching** - Specialized advice for career development
+- 🎯 **Interactive Buttons** - Quick access to resume tips, interview prep, salary negotiation
+- 💼 **Smart Keyword Detection** - Automatically responds to career-related queries
+- 📱 **Two-Way Communication** - Full conversational WhatsApp bot
 - 🏓 **Health Monitoring** - API endpoints for bot status
 - 📊 **Auto Documentation** - Swagger UI at `/docs`
 - ⚡ **High Performance** - FastAPI async capabilities
-- 🔒 **Type Safe** - Full TypeScript-like safety in Python
+- 🔒 **Direct API Integration** - No third-party libraries, full control
 
 ## 📋 Prerequisites
 
 1. **Meta Developer Account** - [developers.facebook.com](https://developers.facebook.com/)
 2. **WhatsApp Business Account** - Verified business account
-3. **Python 3.9+** - Required for PyWA
+3. **Python 3.9+** - For FastAPI and direct API calls
 4. **Public URL** - For webhooks (use ngrok for testing)
 
 ## 🛠️ Installation
@@ -52,13 +53,10 @@ A simple yet powerful WhatsApp bot built with **FastAPI** and **PyWA** for the W
 
 5. **Quick Start (after reading setup instructions):**
 
-   ```bash
-   # Start the server
-   python career_coach_webhook.py
-   
-   # In another terminal, register webhook
-   curl -X POST http://localhost:3000/register-webhook
-   ```
+    ```bash
+    # Start the server
+    python whatsapp_direct_api.py
+    ```
 
 ## ⚙️ Environment Variables
 
@@ -118,88 +116,59 @@ You need to provide these environment variables in your `.env` file:
    - Meta will send a verification request
    - Your bot should respond correctly if configured properly
 
-## 🎮 Bot Commands
+## 🎮 Career Coach Commands
 
-Once running, your bot supports:
+Once running, your bot provides career coaching:
 
-### 💬 **Text Commands**
+### 💬 **Career Keywords**
 
-- `hi/hello/hey` - Welcome message with interactive buttons
-- `help` - Show help and available commands
-- `ping` - Test bot response (replies with "Pong!")
-- `menu` - Show interactive menu options
+- `hi/hello/hey/start` - Welcome message with career coaching buttons
+- `resume` - Get detailed resume writing tips
+- `interview` - Interview preparation advice
+- `salary/negotiation` - Salary negotiation strategies
+- `job/career/work/skills/promotion` - General career advice
 
-### 🧮 **Calculator**
+### 🎯 **Interactive Buttons**
 
-Send math expressions:
+- **🎯 Career Goals** - Set and plan your career objectives
+- **📝 Resume Tips** - Professional resume optimization
+- **🔍 Job Search** - Effective job hunting strategies
 
-- `15 + 25` → `40`
-- `100 - 50` → `50`
-- `12 * 8` → `96`
-- `144 / 12` → `12`
+### 🧪 **Testing**
 
-### 🖼️ **Media**
+- `test/ping/webhook` - Test webhook connectivity
+- Send any career-related message for personalized advice
 
-- Send images → Bot provides image details
-- Support for various file types
+### 💼 **Career Coaching Features**
 
-### 🎯 **Interactive Features**
-
-- **Buttons** - Quick action buttons
-- **Lists** - Organized menu selections
-- **Reactions** - Emoji reactions to messages
+- **Smart Detection** - Automatically identifies career-related queries
+- **Personalized Responses** - Tailored advice based on your questions
+- **Interactive Menus** - Easy navigation through career topics
+- **Professional Guidance** - Expert career development tips
 
 ## 📊 API Endpoints
 
-Your bot also provides HTTP API endpoints:
+Your bot provides these HTTP API endpoints:
 
-- `GET /` - Bot status and info
-- `GET /health` - Health check
+- `GET /` - Bot status and environment info
+- `GET /health` - Health check with readiness status
 - `GET /docs` - Interactive API documentation (Swagger UI)
-- `POST /send-message` - Send message to specific number
-- `POST /broadcast` - Send message to multiple recipients
+- `POST /send-message` - Send message to specific WhatsApp number
+- `GET /test-webhook` - Test webhook configuration and get setup instructions
 
 ### Example API Usage
 
 ```bash
 # Send a message
 curl -X POST "http://localhost:8000/send-message" \\
-     -H "Content-Type: application/json" \\
-     -d '{
-       "to": "+919650098052",
-       "message": "Hello from API!"
-     }'
-```
+      -H "Content-Type: application/json" \\
+      -d '{
+        "to": "+919650098052",
+        "message": "Hello from API!"
+      }'
 
-## 🚀 Deployment
-
-### **Railway (Recommended)**
-
-1. Fork/upload your code to GitHub
-2. Connect to [Railway](https://railway.app/)
-3. Add environment variables
-4. Deploy automatically
-
-### **Heroku**
-
-```bash
-# Install Heroku CLI, then:
-heroku create your-bot-name
-heroku config:set PHONE_ID=your_phone_id
-heroku config:set ACCESS_TOKEN=your_token
-# ... add other env vars
-git push heroku main
-```
-
-### **Docker**
-
-```dockerfile
-FROM python:3.11-slim
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-COPY . .
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Check webhook configuration
+curl http://localhost:8000/test-webhook
 ```
 
 ## 🔧 Development
@@ -208,32 +177,29 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 
 ```
 whatsapp_bot/
-├── main.py              # Main application
-├── requirements.txt     # Dependencies
-├── .env.example        # Environment template
-├── .env               # Your actual environment (don't commit!)
-├── README.md          # This file
-└── .gitignore         # Git ignore patterns
+├── whatsapp_direct_api.py    # Main application (Direct WhatsApp API)
+├── career_coach_webhook.py   # Previous PyWA implementation
+├── main_simple.py           # Simple send-only version
+├── requirements.txt         # Dependencies
+├── .env.example            # Environment template
+├── .env                    # Your actual environment (don't commit!)
+├── README.md               # This file
+├── logs.md                 # Project journey and decisions
+└── .gitignore             # Git ignore patterns
 ```
 
 ### **Adding New Features**
 
 ```python
-# Add to main.py
+# Add to whatsapp_direct_api.py
 
-@wa.on_message(filters.text & filters.startswith('custom'))
-def custom_handler(client: WhatsApp, msg: types.Message):
-    msg.reply_text("Custom feature activated!")
-```
+# Add new career advice topics
+CAREER_ADVICE["new_topic"] = """Your new career advice here..."""
 
-### **Testing**
-
-```bash
-# Run tests (if you add pytest)
-pytest
-
-# Test specific functionality
-python -c "import main; print('Bot loaded successfully!')"
+# Add new keyword handlers in handle_text_message()
+elif "new_keyword" in text_lower:
+    if phone_number_id:
+        await send_text_message(sender, CAREER_ADVICE["new_topic"], phone_number_id)
 ```
 
 ## ❓ Troubleshooting
@@ -278,9 +244,9 @@ open http://localhost:8000/docs
 
 ## 🤝 Support
 
-- **PyWA Documentation:** [pywa.readthedocs.io](https://pywa.readthedocs.io/)
 - **WhatsApp Cloud API Docs:** [developers.facebook.com/docs/whatsapp](https://developers.facebook.com/docs/whatsapp)
 - **FastAPI Docs:** [fastapi.tiangolo.com](https://fastapi.tiangolo.com/)
+- **Direct API Implementation:** No third-party library dependencies
 
 ## 📄 License
 
@@ -288,6 +254,6 @@ This project is open source and available under the MIT License.
 
 ---
 
-🎉 **Happy Bot Building!** 🤖
+🎉 **Happy Career Coaching!** 🤖
 
-Built with ❤️ using FastAPI + PyWA
+Built with ❤️ using FastAPI + Direct WhatsApp Cloud API

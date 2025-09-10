@@ -54,7 +54,7 @@ try:
     app_id = os.getenv("APP_ID")
     app_secret = os.getenv("APP_SECRET")
     verify_token = os.getenv("VERIFY_TOKEN")
-
+    callback_url = os.getenv("CALLBACK_URL")
     if not all([phone_id, access_token, app_id, app_secret]):
         missing = []
         if not phone_id:
@@ -80,6 +80,8 @@ try:
             app_secret=str(app_secret),
             verify_token=str(verify_token),
             server=app,  # Connect to FastAPI but don't register webhooks yet
+            callback_url=str(callback_url),
+            webhook_endpoint="/webhook",
         )
         logger.info("✅ Career Coach WhatsApp client initialized (webhooks pending)")
 
@@ -87,6 +89,11 @@ except Exception as e:
     logger.error(f"❌ Failed to initialize WhatsApp client: {e}")
     logger.error("This usually means missing environment variables or wrong values")
     wa = None
+
+
+@wa.on_message()
+def on_msg(_: WhatsApp, msg: types.Message):
+    msg.reply("Hello! mister")
 
 
 # Message handlers - defined globally
@@ -306,6 +313,7 @@ async def register_webhook():
             callback_url=str(callback_url),
             verify_token=str(verify_token),
             webhook_challenge_delay=60,
+            webhook_endpoint="/webhook",
         )
 
         # Register message handlers
