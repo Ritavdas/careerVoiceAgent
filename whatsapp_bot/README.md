@@ -22,28 +22,42 @@ A simple yet powerful WhatsApp bot built with **FastAPI** and **PyWA** for the W
 ## 🛠️ Installation
 
 1. **Clone/Navigate to the bot directory:**
+
    ```bash
    cd whatsapp_bot
    ```
 
 2. **Install dependencies:**
+
    ```bash
    pip install -r requirements.txt
    ```
 
 3. **Setup environment variables:**
+
    ```bash
    cp .env.example .env
    # Edit .env with your actual values
    ```
 
-4. **Run the bot:**
+4. **⚠️ IMPORTANT: Complete Setup Instructions:**
+
+   **📋 See [SETUP_INSTRUCTIONS.md](./SETUP_INSTRUCTIONS.md) for the complete step-by-step guide!**
+
+   This includes the required workflow for:
+   - 🔄 Rotating access tokens (required every time)
+   - 🌐 Starting Cloudflare tunnels
+   - 🔗 Webhook registration process
+   - 🐛 Troubleshooting common issues
+
+5. **Quick Start (after reading setup instructions):**
+
    ```bash
-   # Development mode
-   fastapi dev main.py --port 8000
+   # Start the server
+   python career_coach_webhook.py
    
-   # Or production mode
-   uvicorn main:app --host 0.0.0.0 --port 8000
+   # In another terminal, register webhook
+   curl -X POST http://localhost:3000/register-webhook
    ```
 
 ## ⚙️ Environment Variables
@@ -61,28 +75,33 @@ You need to provide these environment variables in your `.env` file:
 | `CALLBACK_URL` | Your public webhook URL | Your domain or ngrok URL |
 | `VERIFY_TOKEN` | Custom webhook verification token | Choose any secure string |
 
-### 📍 How to Get These Values:
+### 📍 How to Get These Values
 
 #### 1. **PHONE_ID & ACCESS_TOKEN**
+
 - Go to [Meta Developer Console](https://developers.facebook.com/)
 - Select your app → **WhatsApp** → **API Setup**  
 - Copy **Phone Number ID** and **Access Token**
 
 #### 2. **APP_ID & APP_SECRET**
+
 - In Meta Developer Console → Your App → **Settings** → **Basic**
 - Copy **App ID** and **App Secret**
 
 #### 3. **CALLBACK_URL**
+
 - Your public domain: `https://yourdomain.com`
 - For testing with ngrok: `https://abc123.ngrok.io`
 
 #### 4. **VERIFY_TOKEN**
+
 - Create any secure string (e.g., `my_secure_token_123`)
 - You'll use this when setting up webhooks
 
 ## 🌐 Webhook Setup
 
 1. **Get a public URL:**
+
    ```bash
    # For testing - install ngrok
    ngrok http 8000
@@ -104,23 +123,28 @@ You need to provide these environment variables in your `.env` file:
 Once running, your bot supports:
 
 ### 💬 **Text Commands**
+
 - `hi/hello/hey` - Welcome message with interactive buttons
 - `help` - Show help and available commands
 - `ping` - Test bot response (replies with "Pong!")
 - `menu` - Show interactive menu options
 
 ### 🧮 **Calculator**
+
 Send math expressions:
+
 - `15 + 25` → `40`
 - `100 - 50` → `50`
 - `12 * 8` → `96`
 - `144 / 12` → `12`
 
 ### 🖼️ **Media**
+
 - Send images → Bot provides image details
 - Support for various file types
 
 ### 🎯 **Interactive Features**
+
 - **Buttons** - Quick action buttons
 - **Lists** - Organized menu selections
 - **Reactions** - Emoji reactions to messages
@@ -135,7 +159,8 @@ Your bot also provides HTTP API endpoints:
 - `POST /send-message` - Send message to specific number
 - `POST /broadcast` - Send message to multiple recipients
 
-### Example API Usage:
+### Example API Usage
+
 ```bash
 # Send a message
 curl -X POST "http://localhost:8000/send-message" \\
@@ -149,12 +174,14 @@ curl -X POST "http://localhost:8000/send-message" \\
 ## 🚀 Deployment
 
 ### **Railway (Recommended)**
+
 1. Fork/upload your code to GitHub
 2. Connect to [Railway](https://railway.app/)
 3. Add environment variables
 4. Deploy automatically
 
 ### **Heroku**
+
 ```bash
 # Install Heroku CLI, then:
 heroku create your-bot-name
@@ -165,6 +192,7 @@ git push heroku main
 ```
 
 ### **Docker**
+
 ```dockerfile
 FROM python:3.11-slim
 WORKDIR /app
@@ -177,6 +205,7 @@ CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
 ## 🔧 Development
 
 ### **Project Structure**
+
 ```
 whatsapp_bot/
 ├── main.py              # Main application
@@ -188,6 +217,7 @@ whatsapp_bot/
 ```
 
 ### **Adding New Features**
+
 ```python
 # Add to main.py
 
@@ -197,6 +227,7 @@ def custom_handler(client: WhatsApp, msg: types.Message):
 ```
 
 ### **Testing**
+
 ```bash
 # Run tests (if you add pytest)
 pytest
@@ -229,12 +260,14 @@ python -c "import main; print('Bot loaded successfully!')"
    - Use correct Python version (3.9+)
 
 ### **Debug Mode**
+
 ```bash
 # Run with debug logging
 DEBUG=true fastapi dev main.py
 ```
 
 ### **Check Bot Status**
+
 ```bash
 # Test health endpoint
 curl http://localhost:8000/health
