@@ -44,11 +44,11 @@ class SendMessage(BaseModel):
 # Initialize PyWA WITHOUT webhook/server integration (send-only mode)
 try:
     wa = WhatsApp(
-        phone_id=os.getenv('PHONE_ID'),
-        token=os.getenv('ACCESS_TOKEN'),
+        phone_id=os.getenv("PHONE_ID"),
+        token=os.getenv("ACCESS_TOKEN"),
         # Removed server, callback_url, verify_token for send-only mode
-        app_id=int(os.getenv('APP_ID', '0')),
-        app_secret=os.getenv('APP_SECRET'),
+        app_id=int(os.getenv("APP_ID", "0")),
+        app_secret=os.getenv("APP_SECRET"),
     )
     logger.info("WhatsApp client initialized successfully (send-only mode)")
 except Exception as e:
