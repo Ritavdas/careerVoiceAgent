@@ -20,8 +20,8 @@ requests==2.32.3
 # Optional: Redis for caching (uncomment if needed)  
 # redis==5.2.0
 
-# Optional: AI/ML features (uncomment if needed)
-# openai==1.54.4
+# AI/ML features
+openai==1.54.4
 # google-cloud-translate==3.18.0
 
 # Development dependencies (optional)

@@ -18,6 +18,15 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
+# Import OpenAI
+try:
+    from openai import OpenAI
+
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OpenAI = None
+    OPENAI_AVAILABLE = False
+
 # Load environment variables
 load_dotenv()
 
@@ -39,7 +48,22 @@ PHONE_ID = os.getenv("PHONE_ID")
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
 APP_SECRET = os.getenv("APP_SECRET")
 VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "career_coach_verify_token")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 GRAPH_API_URL = "https://graph.facebook.com/v18.0"
+
+# Initialize OpenAI client
+openai_client = None
+if OPENAI_AVAILABLE and OPENAI_API_KEY:
+    try:
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        logger.info("✅ OpenAI client initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize OpenAI client: {e}")
+        openai_client = None
+elif not OPENAI_AVAILABLE:
+    logger.warning("⚠️ OpenAI library not available - install with: pip install openai")
+else:
+    logger.warning("⚠️ OPENAI_API_KEY not found - using manual responses")
 
 # Validate required environment variables
 if not all([PHONE_ID, ACCESS_TOKEN, APP_SECRET, VERIFY_TOKEN]):
@@ -58,42 +82,49 @@ class SendMessage(BaseModel):
     message: str
 
 
-# ============= CAREER COACH RESPONSES =============
+# ============= AI RESPONSE FUNCTION =============
+async def get_ai_response(user_message: str, user_name: str = "Friend") -> str:
+    """Get a friendly, engaging response from OpenAI for career coaching"""
+    if not openai_client:
+        # Fallback to basic response if OpenAI is not available
+        return f"Thanks for reaching out! I'm Coach Alex, your AI career advisor. I'd love to help you with: career planning, resume tips, interview prep, salary negotiation, and job search strategies. What can I help you with today?"
+
+    try:
+        system_prompt = """You are Coach Alex, a friendly AI career advisor who gives short, engaging responses like a supportive friend. 
+
+Key traits:
+- Keep responses to 2-3 sentences max
+- Use a warm, encouraging tone
+- Be practical and actionable
+- Use relevant emojis sparingly
+- Ask follow-up questions to keep the conversation flowing
+- Focus on career topics: jobs, interviews, resumes, salary, skills, workplace issues
+
+Remember: You're like a knowledgeable friend who happens to be great at career advice!"""
+
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"User {user_name} says: {user_message}"},
+            ],
+            max_tokens=150,
+            temperature=0.7,
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        logger.error(f"OpenAI API error: {e}")
+        return "Sorry, I'm having a technical moment! 🤖 Can you try asking me again? I'm here to help with your career questions!"
+
+
+# ============= CAREER COACH RESPONSES (FALLBACK) =============
 WELCOME_MESSAGES = [
     "Hello! I'm Coach Alex, your AI Career Advisor! 🚀\nHow can I help boost your career today?",
     "Hi there! Ready to level up your career? 💼\nWhat's your biggest career question right now?",
     "Welcome! I'm here to help with all things career-related! 🎯\nWhat would you like to discuss?",
 ]
-
-CAREER_ADVICE = {
-    "resume": """📝 **Resume Tips:**
-
-✅ Keep it 1-2 pages maximum
-✅ Use action verbs (Led, Created, Improved)
-✅ Quantify achievements with numbers
-✅ Tailor keywords to job descriptions
-✅ Professional email & clean formatting
-
-**What field are you in?** I can give more specific advice! 🎯""",
-    "interview": """🎤 **Interview Success:**
-
-✅ Research the company thoroughly
-✅ Practice STAR method responses
-✅ Prepare thoughtful questions
-✅ Dress appropriately
-✅ Send thank you email within 24hrs
-
-**What type of interview?** Phone, video, or in-person? 🤔""",
-    "salary": """💰 **Salary Negotiation:**
-
-✅ Research market rates first
-✅ Know your value & achievements
-✅ Let them make the first offer
-✅ Negotiate total compensation package
-✅ Stay professional and positive
-
-**Current situation?** New job offer or asking for a raise? 📊""",
-}
 
 
 # ============= WEBHOOK VERIFICATION (GET) =============
@@ -205,11 +236,11 @@ async def process_message(message: Dict[str, Any], phone_number_id: Optional[str
 # ============= MESSAGE HANDLERS =============
 async def handle_text_message(sender: str, text: str, phone_number_id: Optional[str]):
     """
-    Handle incoming text messages
+    Handle incoming text messages with AI responses
     """
     text_lower = text.lower()
 
-    # Test webhook
+    # Test webhook - keep manual response
     if text_lower in ["test", "ping", "webhook"]:
         await send_text_message(
             sender,
@@ -221,62 +252,32 @@ async def handle_text_message(sender: str, text: str, phone_number_id: Optional[
         )
         return
 
-    # Greetings
-    if any(greeting in text_lower for greeting in ["hi", "hello", "hey", "start"]):
-        await send_welcome_message(sender, phone_number_id)
-        return
-
-    # Career keywords
-    if "resume" in text_lower:
-        if phone_number_id:
-            await send_text_message(sender, CAREER_ADVICE["resume"], phone_number_id)
-    elif "interview" in text_lower:
-        if phone_number_id:
-            await send_text_message(sender, CAREER_ADVICE["interview"], phone_number_id)
-    elif "salary" in text_lower or "negotiat" in text_lower:
-        if phone_number_id:
-            await send_text_message(sender, CAREER_ADVICE["salary"], phone_number_id)
-    elif any(
-        word in text_lower for word in ["job", "career", "work", "skills", "promotion"]
-    ):
-        if phone_number_id:
-            await send_career_advice(sender, text, phone_number_id)
-    else:
-        if phone_number_id:
-            await send_default_message(sender, phone_number_id)
+    # For all other messages, use AI response
+    if phone_number_id:
+        ai_response = await get_ai_response(text, "Friend")
+        await send_text_message(sender, ai_response, phone_number_id)
 
 
-async def handle_button_reply(sender: str, button_id: str, phone_number_id: Optional[str]):
+async def handle_button_reply(
+    sender: str, button_id: str, phone_number_id: Optional[str]
+):
     """
-    Handle button click responses
+    Handle button click responses with AI
     """
-    responses = {
-        "goals": """🎯 **Career Goal Setting:**
-
-Let's create your career roadmap! Tell me:
-• What's your current role?
-• Where do you want to be in 2-5 years?
-• What's most important to you?
-• What's your biggest challenge?
-
-The more specific, the better I can help! 🚀""",
-        "resume": CAREER_ADVICE["resume"],
-        "jobs": """🔍 **Job Search Strategy:**
-
-Job hunting can be tough! Tell me:
-• What roles are you targeting?
-• How long have you been searching?
-• What methods are you using?
-• What's been your biggest obstacle?
-
-Let's create a winning plan! 💪""",
+    # Create contextual message for AI based on button clicked
+    context_messages = {
+        "goals": "I'm interested in career goal setting and planning my career path",
+        "resume": "I need help with my resume and want resume tips",
+        "jobs": "I want job search strategies and help finding jobs",
     }
 
-    response = responses.get(
-        button_id, "Great choice! Tell me more about what you need help with! 🤔"
+    user_context = context_messages.get(
+        button_id, f"I clicked on {button_id} and want career advice"
     )
+
     if phone_number_id:
-        await send_text_message(sender, response, phone_number_id)
+        ai_response = await get_ai_response(user_context, "Friend")
+        await send_text_message(sender, ai_response, phone_number_id)
 
 
 # ============= MESSAGE SENDERS =============
@@ -359,61 +360,23 @@ async def send_button_message(
 
 async def send_welcome_message(to: str, phone_number_id: Optional[str]):
     """
-    Send welcome message with buttons
+    Send welcome message with buttons (AI-powered)
     """
     if not phone_number_id:
         logger.error("No phone_number_id provided for welcome message")
         return
 
-    welcome_text = random.choice(WELCOME_MESSAGES)
+    # Get AI welcome message
+    welcome_text = await get_ai_response(
+        "Hi! I'm new here and want to learn about career coaching", "Friend"
+    )
+
     buttons = [
         {"id": "goals", "title": "🎯 Career Goals"},
         {"id": "resume", "title": "📝 Resume Tips"},
         {"id": "jobs", "title": "🔍 Job Search"},
     ]
     await send_button_message(to, welcome_text, buttons, phone_number_id)
-
-
-async def send_career_advice(to: str, user_message: str, phone_number_id: Optional[str]):
-    """
-    Send general career advice
-    """
-    if not phone_number_id:
-        logger.error("No phone_number_id provided for career advice")
-        return
-
-    advice = f"""💼 **Career Advice:**
-
-Great question about "{user_message[:50]}..."! Here's my take:
-
-✅ **Set clear goals** - Where do you want to be?
-✅ **Invest in skills** - What capabilities do you need?
-✅ **Build your network** - Relationships open doors
-✅ **Stay persistent** - Career growth takes time
-✅ **Track progress** - Regular self-assessment
-
-**Tell me more!** What's your specific situation? 🎯"""
-
-    await send_text_message(to, advice, phone_number_id)
-
-
-async def send_default_message(to: str, phone_number_id: Optional[str]):
-    """
-    Send default response
-    """
-    message = """Thanks for reaching out! 😊
-
-I'm Coach Alex, your AI career advisor. I can help with:
-
-• 🎯 Career planning & goals
-• 📝 Resume & interview tips
-• 💰 Salary negotiation
-• 📈 Skill development
-• 🔍 Job search strategies
-
-What career topic can I help you with today?"""
-
-    await send_text_message(to, message, phone_number_id)
 
 
 # ============= WEBHOOK SIGNATURE VERIFICATION =============
@@ -453,6 +416,8 @@ async def root():
             "access_token": "✓" if ACCESS_TOKEN else "✗",
             "app_secret": "✓" if APP_SECRET else "✗",
             "verify_token": "✓" if VERIFY_TOKEN else "✗",
+            "openai_api_key": "✓" if OPENAI_API_KEY else "✗",
+            "ai_enabled": "✓" if openai_client else "✗",
         },
     }
 
@@ -508,7 +473,8 @@ if __name__ == "__main__":
     print("=" * 60)
 
     # Check configuration
-    if not all([PHONE_ID, ACCESS_TOKEN, APP_SECRET, VERIFY_TOKEN]):
+    required_vars = [PHONE_ID, ACCESS_TOKEN, APP_SECRET, VERIFY_TOKEN]
+    if not all(required_vars):
         print("❌ Missing required environment variables:")
         if not PHONE_ID:
             print("  - PHONE_ID")
@@ -520,7 +486,16 @@ if __name__ == "__main__":
             print("  - VERIFY_TOKEN")
         print("\n📝 Add these to your .env file")
     else:
-        print("✅ All environment variables loaded")
+        print("✅ All required environment variables loaded")
+
+    # Check OpenAI configuration
+    if not OPENAI_API_KEY:
+        print("⚠️  OPENAI_API_KEY not found - using basic responses")
+        print("   Add OPENAI_API_KEY to your .env file for AI conversations")
+    elif openai_client:
+        print("✅ OpenAI client ready - AI responses enabled")
+    else:
+        print("❌ OpenAI configuration failed")
 
     print(f"\n📍 Webhook endpoint: /webhook")
     print(f"🔑 Verify token: {VERIFY_TOKEN}")
