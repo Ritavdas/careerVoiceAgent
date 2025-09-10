@@ -1,17 +1,30 @@
 """
-Simple WhatsApp Bot using FastAPI + PyWA
-A basic bot with essential features to get you started.
+WhatsApp Business API Direct Implementation
+Career Coach Bot - No PyWA, Direct Meta API calls
+Clean, simple, transparent webhook handling
 """
 
+import hashlib
+import hmac
+import json
 import logging
 import os
-from typing import Optional
+from typing import Any, Dict, Optional
 
+import requests
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query, Request, Response
 from pydantic import BaseModel
-from pywa import WhatsApp, filters, types
+
+# Import OpenAI
+try:
+    from openai import OpenAI
+
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OpenAI = None
+    OPENAI_AVAILABLE = False
 
 # Load environment variables
 load_dotenv()
@@ -24,376 +37,477 @@ logger = logging.getLogger(__name__)
 
 # FastAPI app
 app = FastAPI(
-    title="WhatsApp Bot",
-    description="Simple WhatsApp Bot built with FastAPI + PyWA",
-    version="1.0.0",
+    title="WhatsApp Career Coach Bot - Direct API",
+    description="Direct WhatsApp Business API implementation",
+    version="2.0.0",
 )
 
+# Configuration from environment
+PHONE_ID = os.getenv("PHONE_ID")
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
+APP_SECRET = os.getenv("APP_SECRET")
+VERIFY_TOKEN = os.getenv("VERIFY_TOKEN", "career_coach_verify_token")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GRAPH_API_URL = "https://graph.facebook.com/v18.0"
 
-# Pydantic models for API endpoints
-class BroadcastMessage(BaseModel):
-    message: str
-    recipients: list[str]
+# Initialize OpenAI client
+openai_client = None
+if OPENAI_AVAILABLE and OPENAI_API_KEY:
+    try:
+        openai_client = OpenAI(api_key=OPENAI_API_KEY)
+        logger.info("✅ OpenAI client initialized")
+    except Exception as e:
+        logger.error(f"❌ Failed to initialize OpenAI client: {e}")
+        openai_client = None
+elif not OPENAI_AVAILABLE:
+    logger.warning("⚠️ OpenAI library not available - install with: pip install openai")
+else:
+    logger.warning("⚠️ OPENAI_API_KEY not found - using manual responses")
+
+# Validate required environment variables
+if not all([PHONE_ID, ACCESS_TOKEN, APP_SECRET, VERIFY_TOKEN]):
+    logger.error("Missing required environment variables!")
+    logger.error(f"PHONE_ID: {'✓' if PHONE_ID else '✗'}")
+    logger.error(f"ACCESS_TOKEN: {'✓' if ACCESS_TOKEN else '✗'}")
+    logger.error(f"APP_SECRET: {'✓' if APP_SECRET else '✗'}")
+    logger.error(f"VERIFY_TOKEN: {'✓' if VERIFY_TOKEN else '✗'}")
 
 
+# ============= MODELS =============
 class SendMessage(BaseModel):
+    """Model for sending messages via API"""
+
     to: str
     message: str
 
 
-# Initialize PyWA WITHOUT webhook/server integration (send-only mode)
-try:
-    wa = WhatsApp(
-        phone_id=os.getenv("PHONE_ID"),
-        token=os.getenv("ACCESS_TOKEN"),
-        # Removed server, callback_url, verify_token for send-only mode
-        app_id=int(os.getenv("APP_ID", "0")),
-        app_secret=os.getenv("APP_SECRET"),
+# ============= AI RESPONSE FUNCTION =============
+async def get_ai_response(user_message: str, user_name: str = "Friend") -> str:
+    """Get a friendly, engaging response from OpenAI for career coaching"""
+    if not openai_client:
+        # Fallback to basic response if OpenAI is not available
+        return "Thanks for reaching out! I'm Coach Alex, your AI career advisor. I'd love to help you with: career planning, resume tips, interview prep, salary negotiation, and job search strategies. What can I help you with today?"
+
+    try:
+        system_prompt = """You are Coach Alex, a friendly AI career advisor who gives short, engaging responses like a supportive friend. 
+
+Key traits:
+- Keep responses to 2-3 sentences max
+- Use a warm, encouraging tone
+- Be practical and actionable
+- Use relevant emojis sparingly
+- Ask follow-up questions to keep the conversation flowing
+- Focus on career topics: jobs, interviews, resumes, salary, skills, workplace issues
+
+Remember: You're like a knowledgeable friend who happens to be great at career advice!"""
+
+        response = openai_client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"User {user_name} says: {user_message}"},
+            ],
+            max_tokens=150,
+            temperature=0.7,
+        )
+
+        return response.choices[0].message.content.strip()
+
+    except Exception as e:
+        logger.error(f"OpenAI API error: {e}")
+        return "Sorry, I'm having a technical moment! 🤖 Can you try asking me again? I'm here to help with your career questions!"
+
+
+# ============= CAREER COACH RESPONSES (FALLBACK) =============
+WELCOME_MESSAGES = [
+    "Hello! I'm Coach Alex, your AI Career Advisor! 🚀\nHow can I help boost your career today?",
+    "Hi there! Ready to level up your career? 💼\nWhat's your biggest career question right now?",
+    "Welcome! I'm here to help with all things career-related! 🎯\nWhat would you like to discuss?",
+]
+
+
+# ============= WEBHOOK VERIFICATION (GET) =============
+@app.get("/webhook")
+async def verify_webhook(
+    hub_mode: str = Query(None, alias="hub.mode"),
+    hub_challenge: str = Query(None, alias="hub.challenge"),
+    hub_verify_token: str = Query(None, alias="hub.verify_token"),
+):
+    """
+    Handle webhook verification from Meta
+    Meta sends: GET /webhook?hub.mode=subscribe&hub.challenge=CHALLENGE&hub.verify_token=TOKEN
+    """
+    logger.info(
+        f"Webhook verification request: mode={hub_mode}, token={hub_verify_token}"
     )
-    logger.info("WhatsApp client initialized successfully (send-only mode)")
-except Exception as e:
-    logger.error(f"Failed to initialize WhatsApp client: {e}")
-    wa = None
+
+    if hub_mode == "subscribe" and hub_verify_token == VERIFY_TOKEN:
+        logger.info("✅ Webhook verified successfully")
+        # Return the challenge as plain text integer
+        return Response(content=hub_challenge, media_type="text/plain")
+
+    logger.error("❌ Webhook verification failed: token mismatch or wrong mode")
+    raise HTTPException(status_code=403, detail="Verification failed")
 
 
-# API Health Check
+# ============= WEBHOOK MESSAGE RECEIVER (POST) =============
+@app.post("/webhook")
+async def receive_webhook(request: Request):
+    """
+    Handle incoming messages from WhatsApp
+    """
+    # Get the request body
+    body = await request.json()
+
+    # Log the incoming webhook
+    logger.info(f"📨 Received webhook: {json.dumps(body, indent=2)}")
+
+    # Verify webhook signature (optional but recommended)
+    if APP_SECRET:
+        signature = request.headers.get("X-Hub-Signature-256", "")
+        if not verify_webhook_signature(await request.body(), signature):
+            logger.error("❌ Invalid webhook signature")
+            raise HTTPException(status_code=403, detail="Invalid signature")
+
+    try:
+        # Process the webhook
+        if body.get("object") == "whatsapp_business_account":
+            for entry in body.get("entry", []):
+                for change in entry.get("changes", []):
+                    value = change.get("value", {})
+
+                    # Get phone number ID for replies
+                    phone_number_id = value.get("metadata", {}).get("phone_number_id")
+
+                    # Process messages
+                    messages = value.get("messages", [])
+                    for message in messages:
+                        await process_message(message, phone_number_id)
+
+                    # Process status updates (optional)
+                    statuses = value.get("statuses", [])
+                    for status in statuses:
+                        logger.info(
+                            f"📊 Status update: {status.get('status')} for {status.get('recipient_id')}"
+                        )
+
+    except Exception as e:
+        logger.error(f"❌ Error processing webhook: {e}")
+
+    # Always return 200 OK to acknowledge receipt
+    return {"status": "EVENT_RECEIVED"}
+
+
+# ============= MESSAGE PROCESSOR =============
+async def process_message(message: Dict[str, Any], phone_number_id: Optional[str]):
+    """
+    Process incoming WhatsApp messages
+    """
+    sender = message.get("from")
+    message_type = message.get("type")
+    # message_id = message.get("id")
+
+    logger.info(f"Processing {message_type} message from {sender}")
+
+    # Handle different message types
+    if message_type == "text":
+        text_body = message.get("text", {}).get("body", "")
+        if sender:
+            await handle_text_message(sender, text_body, phone_number_id)
+
+    elif message_type == "interactive":
+        # Handle button/list replies
+        interactive = message.get("interactive", {})
+        if interactive.get("type") == "button_reply":
+            button_id = interactive.get("button_reply", {}).get("id")
+            if sender:
+                await handle_button_reply(sender, button_id, phone_number_id)
+
+    elif message_type == "request_welcome":
+        # First time message from user
+        if sender:
+            await send_welcome_message(sender, phone_number_id)
+
+    else:
+        logger.info(f"Received {message_type} message - not processed")
+
+
+# ============= MESSAGE HANDLERS =============
+async def handle_text_message(sender: str, text: str, phone_number_id: Optional[str]):
+    """
+    Handle incoming text messages with AI responses
+    """
+    text_lower = text.lower()
+
+    # Test webhook - keep manual response
+    if text_lower in ["test", "ping", "webhook"]:
+        await send_text_message(
+            sender,
+            f"🎉 **Webhook Working!**\n\n"
+            f"✅ Message received: _{text}_\n"
+            f"✅ Two-way communication active!\n\n"
+            f"I'm Coach Alex, ready to help with your career! 💼",
+            phone_number_id,
+        )
+        return
+
+    # For all other messages, use AI response
+    if phone_number_id:
+        ai_response = await get_ai_response(text, "Friend")
+        await send_text_message(sender, ai_response, phone_number_id)
+
+
+async def handle_button_reply(
+    sender: str, button_id: str, phone_number_id: Optional[str]
+):
+    """
+    Handle button click responses with AI
+    """
+    # Create contextual message for AI based on button clicked
+    context_messages = {
+        "goals": "I'm interested in career goal setting and planning my career path",
+        "resume": "I need help with my resume and want resume tips",
+        "jobs": "I want job search strategies and help finding jobs",
+    }
+
+    user_context = context_messages.get(
+        button_id, f"I clicked on {button_id} and want career advice"
+    )
+
+    if phone_number_id:
+        ai_response = await get_ai_response(user_context, "Friend")
+        await send_text_message(sender, ai_response, phone_number_id)
+
+
+# ============= MESSAGE SENDERS =============
+async def send_text_message(to: str, text: str, phone_number_id: Optional[str]) -> bool:
+    """
+    Send a text message via WhatsApp API
+    """
+    if not phone_number_id:
+        logger.error("No phone_number_id provided for text message")
+        return False
+
+    url = f"{GRAPH_API_URL}/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "text",
+        "text": {"body": text},
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            logger.info(f"✅ Message sent to {to}")
+            return True
+        else:
+            logger.error(f"❌ Failed to send message: {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Error sending message: {e}")
+        return False
+
+
+async def send_button_message(
+    to: str, text: str, buttons: list, phone_number_id: Optional[str]
+) -> bool:
+    """
+    Send an interactive button message
+    """
+    if not phone_number_id:
+        logger.error("No phone_number_id provided for button message")
+        return False
+
+    url = f"{GRAPH_API_URL}/{phone_number_id}/messages"
+    headers = {
+        "Authorization": f"Bearer {ACCESS_TOKEN}",
+        "Content-Type": "application/json",
+    }
+    data = {
+        "messaging_product": "whatsapp",
+        "to": to,
+        "type": "interactive",
+        "interactive": {
+            "type": "button",
+            "body": {"text": text},
+            "action": {
+                "buttons": [
+                    {"type": "reply", "reply": {"id": btn["id"], "title": btn["title"]}}
+                    for btn in buttons
+                ]
+            },
+        },
+    }
+
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            logger.info(f"✅ Button message sent to {to}")
+            return True
+        else:
+            logger.error(f"❌ Failed to send button message: {response.text}")
+            return False
+    except Exception as e:
+        logger.error(f"❌ Error sending button message: {e}")
+        return False
+
+
+async def send_welcome_message(to: str, phone_number_id: Optional[str]):
+    """
+    Send welcome message with buttons (AI-powered)
+    """
+    if not phone_number_id:
+        logger.error("No phone_number_id provided for welcome message")
+        return
+
+    # Get AI welcome message
+    welcome_text = await get_ai_response(
+        "Hi! I'm new here and want to learn about career coaching", "Friend"
+    )
+
+    buttons = [
+        {"id": "goals", "title": "🎯 Career Goals"},
+        {"id": "resume", "title": "📝 Resume Tips"},
+        {"id": "jobs", "title": "🔍 Job Search"},
+    ]
+    await send_button_message(to, welcome_text, buttons, phone_number_id)
+
+
+# ============= WEBHOOK SIGNATURE VERIFICATION =============
+def verify_webhook_signature(payload: bytes, signature: str) -> bool:
+    """
+    Verify webhook signature from Meta
+    """
+    if not signature or not APP_SECRET:
+        return False
+
+    try:
+        # Remove 'sha256=' prefix
+        signature = signature.replace("sha256=", "")
+
+        # Calculate expected signature
+        expected_signature = hmac.new(
+            APP_SECRET.encode(), payload, hashlib.sha256
+        ).hexdigest()
+
+        # Compare signatures
+        return hmac.compare_digest(signature, expected_signature)
+    except Exception as e:
+        logger.error(f"Error verifying signature: {e}")
+        return False
+
+
+# ============= API ENDPOINTS =============
 @app.get("/")
 async def root():
+    """Health check endpoint"""
     return {
-        "message": "WhatsApp Bot is running! 🤖",
+        "message": "WhatsApp Career Coach Bot - Direct API",
         "status": "healthy",
-        "framework": "FastAPI + PyWA",
+        "webhook_url": "/webhook",
+        "environment": {
+            "phone_id": "✓" if PHONE_ID else "✗",
+            "access_token": "✓" if ACCESS_TOKEN else "✗",
+            "app_secret": "✓" if APP_SECRET else "✗",
+            "verify_token": "✓" if VERIFY_TOKEN else "✗",
+            "openai_api_key": "✓" if OPENAI_API_KEY else "✗",
+            "ai_enabled": "✓" if openai_client else "✗",
+        },
     }
 
 
 @app.get("/health")
-async def health_check():
+async def health():
+    """Detailed health check"""
     return {
-        "status": "healthy" if wa else "error",
-        "bot_active": wa is not None,
-        "framework": "FastAPI + PyWA",
+        "status": "healthy",
+        "api_version": "v18.0",
+        "webhook_path": "/webhook",
+        "ready": all([PHONE_ID, ACCESS_TOKEN, VERIFY_TOKEN]),
     }
 
 
-# API endpoint to send messages
 @app.post("/send-message")
-async def send_message(message_data: SendMessage):
-    """Send a message to a specific WhatsApp number"""
-    if not wa:
-        raise HTTPException(status_code=500, detail="WhatsApp client not initialized")
+async def send_message_api(message: SendMessage):
+    """API endpoint to send messages"""
+    if not all([PHONE_ID, ACCESS_TOKEN]):
+        raise HTTPException(status_code=500, detail="Missing configuration")
 
-    try:
-        result = wa.send_message(to=message_data.to, text=message_data.message)
-        return {"status": "sent", "message_id": result.id}
-    except Exception as e:
-        logger.error(f"Failed to send message: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+    if not PHONE_ID:
+        raise HTTPException(status_code=500, detail="PHONE_ID not configured")
 
-
-@app.post("/broadcast")
-async def broadcast_message(broadcast: BroadcastMessage):
-    """Send message to multiple recipients"""
-    if not wa:
-        raise HTTPException(status_code=500, detail="WhatsApp client not initialized")
-
-    results = []
-    for recipient in broadcast.recipients:
-        try:
-            result = wa.send_message(to=recipient, text=broadcast.message)
-            results.append(
-                {"recipient": recipient, "status": "sent", "message_id": result.id}
-            )
-        except Exception as e:
-            logger.error(f"Failed to send to {recipient}: {e}")
-            results.append(
-                {"recipient": recipient, "status": "failed", "error": str(e)}
-            )
-
-    return {"results": results}
+    success = await send_text_message(message.to, message.message, PHONE_ID)
+    if success:
+        return {"status": "sent", "to": message.to}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send message")
 
 
-# Bot Event Handlers
-if wa:
-
-    @wa.on_message
-    def handle_message(client: WhatsApp, msg: types.Message):
-        """Handle all incoming messages"""
-        logger.info(f"Received message from {msg.from_user.name}: {msg.text}")
-
-        # Welcome/Greeting handler
-        if msg.text and msg.text.lower() in ["hi", "hello", "hey", "start"]:
-            msg.react("👋")
-            welcome_text = f"""
-Hello {msg.from_user.name}! 👋
-
-Welcome to our WhatsApp Bot! 🤖
-
-**Available Commands:**
-• `hi/hello` - Get this welcome message
-• `help` - Show help information  
-• `ping` - Test bot response
-• `menu` - Show available options
-• Math expressions (e.g., `5 + 3`) - Calculator
-
-**Features:**
-✅ Interactive buttons
-✅ Built-in calculator
-✅ Image processing
-✅ Fast responses
-
-Type `help` for more information!
-            """
-
-            msg.reply_text(
-                text=welcome_text.strip(),
-                buttons=[
-                    types.Button(title="📋 Menu", callback_data="show_menu"),
-                    types.Button(title="🆘 Help", callback_data="show_help"),
-                    types.Button(title="🧮 Calculator", callback_data="show_calc"),
-                ],
-            )
-
-        # Help command
-        elif msg.text and msg.text.lower() in ["help", "/help"]:
-            help_text = """
-🤖 **Bot Help & Commands**
-
-**💬 Basic Commands:**
-• `hi/hello` - Welcome message
-• `ping` - Test response
-• `help` - This help message
-• `menu` - Show options
-
-**🧮 Calculator:**
-Send math expressions like:
-• `15 + 25` = 40
-• `100 - 50` = 50  
-• `12 * 8` = 96
-• `144 / 12` = 12
-
-**🎯 Features:**
-• Interactive buttons
-• Image processing
-• Fast API endpoints
-• Real-time responses
-
-**🔧 Tech Stack:**
-FastAPI + PyWA + WhatsApp Cloud API
-
-Need help? Just ask! 😊
-            """
-            msg.reply_text(help_text.strip())
-
-        # Ping command
-        elif msg.text and msg.text.lower() == "ping":
-            msg.react("🏓")
-            msg.reply("🏓 Pong! Bot is working perfectly! ✅")
-
-        # Menu command
-        elif msg.text and msg.text.lower() == "menu":
-            show_main_menu(msg)
-
-        # Default response for unrecognized messages
-        else:
-            if msg.text:  # Only respond to text messages
-                msg.reply_text(
-                    f"I received: *{msg.text}*\n\n"
-                    "I'm still learning! 🧠\n"
-                    "Type `help` to see what I can do! 😊"
-                )
-
-    def show_main_menu(msg: types.Message):
-        """Show the main interactive menu"""
-        msg.reply_text(
-            text="📋 **Main Menu** 📋\n\nWhat would you like to do?",
-            buttons=types.SectionList(
-                button_title="🚀 Choose Option",
-                sections=[
-                    types.Section(
-                        title="🤖 Bot Features",
-                        rows=[
-                            types.SectionRow(
-                                title="🧮 Calculator",
-                                description="Perform math calculations",
-                                callback_data="feature:calculator",
-                            ),
-                            types.SectionRow(
-                                title="🆘 Help",
-                                description="Get help and commands",
-                                callback_data="feature:help",
-                            ),
-                            types.SectionRow(
-                                title="ℹ️ About",
-                                description="About this bot",
-                                callback_data="feature:about",
-                            ),
-                        ],
-                    ),
-                    types.Section(
-                        title="🎯 Quick Actions",
-                        rows=[
-                            types.SectionRow(
-                                title="🏓 Ping Test",
-                                description="Test bot response",
-                                callback_data="action:ping",
-                            ),
-                            types.SectionRow(
-                                title="📊 Bot Status",
-                                description="Check bot health",
-                                callback_data="action:status",
-                            ),
-                        ],
-                    ),
-                ],
-            ),
-        )
-
-    # Handle button clicks
-    @wa.on_callback_button
-    def handle_button_click(client: WhatsApp, btn: types.CallbackButton):
-        """Handle button interactions"""
-        logger.info(f"Button clicked: {btn.data}")
-
-        if btn.data == "show_menu":
-            show_main_menu(btn)
-        elif btn.data == "show_help":
-            btn.reply_text("Type `help` to see all available commands! 🆘")
-        elif btn.data == "show_calc":
-            btn.reply_text(
-                "🧮 **Calculator Mode**\n\n"
-                "Send me math expressions like:\n"
-                "• `15 + 25`\n• `100 - 50`\n• `12 * 8`\n• `144 / 12`\n\n"
-                "Try it now! 🔢"
-            )
-
-    # Handle menu selections
-    @wa.on_callback_selection
-    def handle_menu_selection(client: WhatsApp, selection: types.CallbackSelection):
-        """Handle menu item selections"""
-        logger.info(f"Menu selection: {selection.data}")
-
-        if selection.data.startswith("feature:"):
-            feature = selection.data.split(":")[1]
-
-            if feature == "calculator":
-                selection.reply_text(
-                    "🧮 **Calculator Ready!**\n\n"
-                    "Send me any math expression:\n"
-                    "• Addition: `5 + 3`\n"
-                    "• Subtraction: `10 - 4`\n"
-                    "• Multiplication: `6 * 7`\n"
-                    "• Division: `20 / 4`\n\n"
-                    "Try it now! 🔢"
-                )
-            elif feature == "help":
-                selection.reply_text(
-                    "🆘 **Need Help?**\n\n"
-                    "Type `help` to see all commands, or just ask me anything!\n\n"
-                    "I'm here to assist you! 😊"
-                )
-            elif feature == "about":
-                selection.reply_text(
-                    "🤖 **About This Bot**\n\n"
-                    "Built with:\n"
-                    "• FastAPI (High-performance web framework)\n"
-                    "• PyWA (WhatsApp Cloud API wrapper)\n"
-                    "• WhatsApp Business API\n\n"
-                    "Features:\n"
-                    "✅ Real-time messaging\n"
-                    "✅ Interactive buttons\n"
-                    "✅ Calculator\n"
-                    "✅ Image processing\n"
-                    "✅ Fast & reliable\n\n"
-                    "Version: 1.0.0 🚀"
-                )
-
-        elif selection.data.startswith("action:"):
-            action = selection.data.split(":")[1]
-
-            if action == "ping":
-                selection.react("🏓")
-                selection.reply_text("🏓 Pong! Bot is working perfectly! ✅")
-            elif action == "status":
-                selection.reply_text(
-                    "📊 **Bot Status**\n\n"
-                    "✅ Status: Active\n"
-                    "✅ Framework: FastAPI + PyWA\n"
-                    "✅ API: WhatsApp Cloud API\n"
-                    "✅ Response Time: < 1s\n\n"
-                    "All systems operational! 🚀"
-                )
-
-    # Calculator functionality
-    import re
-
-    calc_pattern = re.compile(r"^(\d+(?:\.\d+)?)\s*([+\-*/])\s*(\d+(?:\.\d+)?)$")
-
-    @wa.on_message(filters.regex(calc_pattern))
-    def calculator(client: WhatsApp, msg: types.Message):
-        """Handle calculator operations"""
-        try:
-            match = calc_pattern.match(msg.text)
-            a, op, b = match.groups()
-            a, b = float(a), float(b)
-
-            operations = {
-                "+": a + b,
-                "-": a - b,
-                "*": a * b,
-                "/": a / b if b != 0 else None,
-            }
-
-            result = operations.get(op)
-
-            if result is not None:
-                # Format result (remove .0 for whole numbers)
-                result_str = (
-                    str(int(result)) if result == int(result) else f"{result:.2f}"
-                )
-                msg.react("🧮")
-                msg.reply_text(f"🧮 **Calculator**\n\n`{a} {op} {b} = {result_str}`")
-                logger.info(f"Calculator: {a} {op} {b} = {result_str}")
-            else:
-                msg.react("❌")
-                msg.reply_text("❌ **Error:** Cannot divide by zero!")
-        except Exception as e:
-            logger.error(f"Calculator error: {e}")
-            msg.react("❌")
-            msg.reply_text("❌ **Error:** Invalid calculation!")
-
-    # Handle images
-    @wa.on_message(filters.image)
-    def handle_image(client: WhatsApp, msg: types.Message):
-        """Handle incoming images"""
-        msg.react("📸")
-
-        image_info = f"""
-📸 **Image Received!**
-
-**Details:**
-• Type: {msg.image.mime_type}
-• Size: {msg.image.file_size} bytes
-• Caption: {msg.caption or "No caption"}
-
-Thanks for sharing! 📷✨
-        """
-
-        msg.reply_text(image_info.strip())
-        logger.info(
-            f"Image received: {msg.image.mime_type}, {msg.image.file_size} bytes"
-        )
-
-    # Message status handler
-    @wa.on_message_status
-    def handle_message_status(client: WhatsApp, status: types.MessageStatus):
-        """Handle message delivery status"""
-        if status.status == types.MessageStatus.Status.FAILED:
-            logger.error(f"Message failed: {status.error}")
+@app.get("/test-webhook")
+async def test_webhook():
+    """Test webhook configuration"""
+    return {
+        "webhook_url": "/webhook",
+        "verify_token_configured": bool(VERIFY_TOKEN),
+        "app_secret_configured": bool(APP_SECRET),
+        "phone_id_configured": bool(PHONE_ID),
+        "access_token_configured": bool(ACCESS_TOKEN),
+        "instructions": {
+            "1": "Configure webhook URL in Meta Dashboard: https://your-domain.com/webhook",
+            "2": f"Use this verify token: {VERIFY_TOKEN}",
+            "3": "Subscribe to 'messages' field",
+            "4": "Test by sending a WhatsApp message to your business number",
+        },
+    }
 
 
+# ============= MAIN =============
 if __name__ == "__main__":
+    print("🚀 WhatsApp Career Coach Bot - Direct API Implementation")
+    print("=" * 60)
+
+    # Check configuration
+    required_vars = [PHONE_ID, ACCESS_TOKEN, APP_SECRET, VERIFY_TOKEN]
+    if not all(required_vars):
+        print("❌ Missing required environment variables:")
+        if not PHONE_ID:
+            print("  - PHONE_ID")
+        if not ACCESS_TOKEN:
+            print("  - ACCESS_TOKEN")
+        if not APP_SECRET:
+            print("  - APP_SECRET")
+        if not VERIFY_TOKEN:
+            print("  - VERIFY_TOKEN")
+        print("\n📝 Add these to your .env file")
+    else:
+        print("✅ All required environment variables loaded")
+
+    # Check OpenAI configuration
+    if not OPENAI_API_KEY:
+        print("⚠️  OPENAI_API_KEY not found - using basic responses")
+        print("   Add OPENAI_API_KEY to your .env file for AI conversations")
+    elif openai_client:
+        print("✅ OpenAI client ready - AI responses enabled")
+    else:
+        print("❌ OpenAI configuration failed")
+
+    print("\n📍 Webhook endpoint: /webhook")
+    print(f"🔑 Verify token: {VERIFY_TOKEN}")
+    print(f"\n🌐 Starting server on http://localhost:{os.getenv('PORT', '8000')}")
+    print("\n📋 Next steps:")
+    print("1. Start this server")
+    print("2. Configure webhook URL in Meta Dashboard")
+    print("3. Use the verify token shown above")
+    print("4. Subscribe to 'messages' webhook field")
+    print("5. Send a test message to your WhatsApp Business number")
+
     uvicorn.run(
-        "main:app",
+        "whatsapp_direct_api:app",
         host="0.0.0.0",
         port=int(os.getenv("PORT", "8000")),
         reload=True,
